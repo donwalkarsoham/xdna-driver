@@ -10,84 +10,13 @@
 
 #include "aie4_msg_priv.h"
 
-#ifdef AMDXDNA_DEVEL
-#define TX_TIMEOUT 60000 /* milliseconds */
-#define RX_TIMEOUT 60000 /* milliseconds */
-#else
-#define TX_TIMEOUT 2000 /* milliseconds */
-#define RX_TIMEOUT 5000 /* milliseconds */
-#endif
-
 #define ASYNC_BUF_SIZE		SZ_8K
 
-int aie4_xdna_msg_cb(void *handle, void __iomem *data, size_t size)
+static inline int aie4_send_msg_wait(struct amdxdna_dev_hdl *ndev,
+				     struct xdna_mailbox_msg *msg)
 {
-	struct xdna_notify *cb_arg = handle;
-	int ret;
-
-	if (unlikely(!data))
-		goto out;
-
-	if (unlikely(cb_arg->size != size)) {
-		cb_arg->error = -EINVAL;
-		goto out;
-	}
-
-	memcpy_fromio(cb_arg->data, data, cb_arg->size);
-	print_hex_dump_debug("resp data: ", DUMP_PREFIX_OFFSET,
-			     16, 4, cb_arg->data, cb_arg->size, true);
-out:
-	ret = cb_arg->error;
-	complete(&cb_arg->comp);
-	return ret;
-}
-
-static int xdna_send_msg_wait(struct amdxdna_dev *xdna,
-			      struct mailbox_channel *chann,
-			      struct xdna_mailbox_msg *msg)
-{
-	struct xdna_notify *hdl = msg->handle;
-	int ret;
-
-	ret = xdna_mailbox_send_msg(chann, msg, TX_TIMEOUT);
-	if (ret) {
-		XDNA_ERR(xdna, "Send message failed, ret %d", ret);
-		return ret;
-	}
-
-	ret = wait_for_completion_timeout(&hdl->comp,
-					  msecs_to_jiffies(RX_TIMEOUT));
-	if (!ret) {
-		XDNA_ERR(xdna, "Wait for completion timeout");
-		return -ETIME;
-	}
-
-	return hdl->error;
-}
-
-int aie4_send_msg_wait(struct amdxdna_dev_hdl *ndev,
-		       struct xdna_mailbox_msg *msg)
-{
-	struct amdxdna_dev *xdna = ndev->xdna;
-	struct xdna_notify *hdl = msg->handle;
-	int ret;
-
-	drm_WARN_ON(&xdna->ddev, !mutex_is_locked(&ndev->aie4_lock));
-
-	if (!ndev->mgmt_chann)
-		return -ENODEV;
-
-	ret = xdna_send_msg_wait(xdna, ndev->mgmt_chann, msg);
-	if (ret)
-		return ret;
-
-	if (*hdl->data != AIE4_MSG_STATUS_SUCCESS) {
-		XDNA_ERR(xdna, "command opcode 0x%x failed, status 0x%x",
-			 msg->opcode, *hdl->data);
-		return -EINVAL;
-	}
-
-	return 0;
+	drm_WARN_ON(&ndev->xdna->ddev, !mutex_is_locked(&ndev->aie4_lock));
+	return aie_send_msg_wait(ndev->xdna, &ndev->mgmt_chann, msg);
 }
 
 int aie4_suspend_fw(struct amdxdna_dev_hdl *ndev)
@@ -663,3 +592,4 @@ int aie4_get_aie_coredump(struct amdxdna_dev_hdl *ndev, struct amdxdna_mgmt_dma_
 
 	return 0;
 }
+
