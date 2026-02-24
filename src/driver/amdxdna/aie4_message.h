@@ -10,8 +10,6 @@
 #include "amdxdna_ctx.h"
 #include "aie_message.h"
 
-#define DECLARE_AIE4_MSG(name, op) DECLARE_AIE_MSG(name, op)
-
 /* aie4_message.c */
 int aie4_send_msg_wait(struct amdxdna_dev_hdl *ndev, struct xdna_mailbox_msg *msg);
 

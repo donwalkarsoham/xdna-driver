@@ -7,13 +7,12 @@
 #include "amdxdna_mailbox.h"
 #include "amdxdna_mgmt.h"
 #include "aie4_message.h"
-
 #include "aie4_msg_priv.h"
 
 #define ASYNC_BUF_SIZE		SZ_8K
 
-static inline int aie4_send_msg_wait(struct amdxdna_dev_hdl *ndev,
-				     struct xdna_mailbox_msg *msg)
+int aie4_send_msg_wait(struct amdxdna_dev_hdl *ndev,
+		       struct xdna_mailbox_msg *msg)
 {
 	drm_WARN_ON(&ndev->xdna->ddev, !mutex_is_locked(&ndev->aie4_lock));
 	return aie_send_msg_wait(ndev->xdna, &ndev->mgmt_chann, msg);
@@ -21,7 +20,7 @@ static inline int aie4_send_msg_wait(struct amdxdna_dev_hdl *ndev,
 
 int aie4_suspend_fw(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_suspend, AIE4_MSG_OP_SUSPEND);
+	DECLARE_AIE_MSG(aie4_msg_suspend, AIE4_MSG_OP_SUSPEND);
 	int ret;
 
 	ret = aie4_send_msg_wait(ndev, &msg);
@@ -35,7 +34,7 @@ int aie4_suspend_fw(struct amdxdna_dev_hdl *ndev)
 
 int aie4_force_preemption(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_set_runtime_cfg, AIE4_MSG_OP_SET_RUNTIME_CONFIG);
+	DECLARE_AIE_MSG(aie4_msg_set_runtime_cfg, AIE4_MSG_OP_SET_RUNTIME_CONFIG);
 	struct aie4_msg_runtime_config_force_preemption *force_preempt;
 	u32 type = AIE4_RUNTIME_CONFIG_FORCE_PREEMPTION;
 	int ret;
@@ -57,7 +56,7 @@ int aie4_force_preemption(struct amdxdna_dev_hdl *ndev)
 
 int aie4_check_firmware_version(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_identify, AIE4_MSG_OP_IDENTIFY);
+	DECLARE_AIE_MSG(aie4_msg_identify, AIE4_MSG_OP_IDENTIFY);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -81,7 +80,7 @@ int aie4_check_firmware_version(struct amdxdna_dev_hdl *ndev)
 int aie4_query_aie_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 			  u32 size, u32 *cols_filled)
 {
-	DECLARE_AIE4_MSG(aie4_msg_aie4_column_info, AIE4_MSG_OP_AIE_COLUMN_INFO);
+	DECLARE_AIE_MSG(aie4_msg_aie4_column_info, AIE4_MSG_OP_AIE_COLUMN_INFO);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	struct amdxdna_mgmt_dma_hdl *dma_hdl;
 	struct amdxdna_client *client;
@@ -156,7 +155,7 @@ fail:
 
 int aie4_query_aie_version(struct amdxdna_dev_hdl *ndev, struct aie_version *version)
 {
-	DECLARE_AIE4_MSG(aie4_msg_aie4_version_info, AIE4_MSG_OP_AIE_VERSION_INFO);
+	DECLARE_AIE_MSG(aie4_msg_aie4_version_info, AIE4_MSG_OP_AIE_VERSION_INFO);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -175,7 +174,7 @@ int aie4_query_aie_version(struct amdxdna_dev_hdl *ndev, struct aie_version *ver
 
 int aie4_query_aie_metadata(struct amdxdna_dev_hdl *ndev, struct aie_metadata *metadata)
 {
-	DECLARE_AIE4_MSG(aie4_msg_aie4_tile_info, AIE4_MSG_OP_AIE_TILE_INFO);
+	DECLARE_AIE_MSG(aie4_msg_aie4_tile_info, AIE4_MSG_OP_AIE_TILE_INFO);
 	int ret;
 
 	ret = aie4_send_msg_wait(ndev, &msg);
@@ -213,7 +212,7 @@ int aie4_query_aie_metadata(struct amdxdna_dev_hdl *ndev, struct aie_metadata *m
 int aie4_query_aie_telemetry(struct amdxdna_dev_hdl *ndev, u32 type, u32 pasid, dma_addr_t addr,
 			     u32 size)
 {
-	DECLARE_AIE4_MSG(aie4_msg_get_telemetry, AIE4_MSG_OP_GET_TELEMETRY);
+	DECLARE_AIE_MSG(aie4_msg_get_telemetry, AIE4_MSG_OP_GET_TELEMETRY);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -239,7 +238,7 @@ int aie4_query_aie_telemetry(struct amdxdna_dev_hdl *ndev, u32 type, u32 pasid, 
 
 int aie4_set_pm_msg(struct amdxdna_dev_hdl *ndev, u32 target)
 {
-	DECLARE_AIE4_MSG(aie4_msg_power_override, AIE4_MSG_OP_POWER_OVERRIDE);
+	DECLARE_AIE_MSG(aie4_msg_power_override, AIE4_MSG_OP_POWER_OVERRIDE);
 	int ret;
 
 	req.power_mode = target;
@@ -253,7 +252,7 @@ int aie4_set_pm_msg(struct amdxdna_dev_hdl *ndev, u32 target)
 
 int aie4_calibrate_clock(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_calibrate_clock_trace, AIE4_MSG_OP_CALIBRATE_CLOCK);
+	DECLARE_AIE_MSG(aie4_msg_calibrate_clock_trace, AIE4_MSG_OP_CALIBRATE_CLOCK);
 	int ret;
 
 	req.time_base_ns = ktime_get_real_ns();
@@ -298,7 +297,7 @@ int aie4_register_asyn_event_msg(struct amdxdna_dev_hdl *ndev,
 int aie4_start_fw_log(struct amdxdna_dev_hdl *ndev, struct amdxdna_mgmt_dma_hdl *dma_hdl, u8 level,
 		      size_t size, u32 *msi_idx, u32 *msi_address)
 {
-	DECLARE_AIE4_MSG(aie4_msg_dram_logging_start, AIE4_MSG_OP_DRAM_LOGGING_START);
+	DECLARE_AIE_MSG(aie4_msg_dram_logging_start, AIE4_MSG_OP_DRAM_LOGGING_START);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	dma_addr_t addr;
 	int ret;
@@ -331,7 +330,7 @@ int aie4_start_fw_log(struct amdxdna_dev_hdl *ndev, struct amdxdna_mgmt_dma_hdl 
 
 int aie4_set_ctx_hysteresis(struct amdxdna_dev_hdl *ndev, u32 timeout_us)
 {
-	DECLARE_AIE4_MSG(aie4_msg_set_runtime_cfg, AIE4_MSG_OP_SET_RUNTIME_CONFIG);
+	DECLARE_AIE_MSG(aie4_msg_set_runtime_cfg, AIE4_MSG_OP_SET_RUNTIME_CONFIG);
 	struct aie4_msg_runtime_config_ctx_switch_hysteresis *hyst;
 	int ret;
 
@@ -354,7 +353,7 @@ int aie4_set_ctx_hysteresis(struct amdxdna_dev_hdl *ndev, u32 timeout_us)
 
 int aie4_set_log_level(struct amdxdna_dev_hdl *ndev, u8 level)
 {
-	DECLARE_AIE4_MSG(aie4_msg_set_runtime_cfg, AIE4_MSG_OP_SET_RUNTIME_CONFIG);
+	DECLARE_AIE_MSG(aie4_msg_set_runtime_cfg, AIE4_MSG_OP_SET_RUNTIME_CONFIG);
 	struct aie4_msg_runtime_config_dynamic_logging_level *log;
 	u32 type = AIE4_RUNTIME_CONFIG_DYNAMIC_LOGGING_LEVEL;
 	int ret;
@@ -376,7 +375,7 @@ int aie4_set_log_level(struct amdxdna_dev_hdl *ndev, u8 level)
 
 int aie4_stop_fw_log(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_dram_logging_stop, AIE4_MSG_OP_DRAM_LOGGING_STOP);
+	DECLARE_AIE_MSG(aie4_msg_dram_logging_stop, AIE4_MSG_OP_DRAM_LOGGING_STOP);
 	int ret;
 
 	ret = aie4_send_msg_wait(ndev, &msg);
@@ -391,7 +390,7 @@ int aie4_stop_fw_log(struct amdxdna_dev_hdl *ndev)
 int aie4_start_fw_trace(struct amdxdna_dev_hdl *ndev, struct amdxdna_mgmt_dma_hdl *dma_hdl,
 			size_t size, u32 categories, u32 *msi_idx, u32 *msi_address)
 {
-	DECLARE_AIE4_MSG(aie4_msg_start_event_trace, AIE4_MSG_OP_START_EVENT_TRACE);
+	DECLARE_AIE_MSG(aie4_msg_start_event_trace, AIE4_MSG_OP_START_EVENT_TRACE);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	dma_addr_t addr;
 	int ret;
@@ -426,7 +425,7 @@ int aie4_start_fw_trace(struct amdxdna_dev_hdl *ndev, struct amdxdna_mgmt_dma_hd
 
 int aie4_set_trace_categories(struct amdxdna_dev_hdl *ndev, u32 categories)
 {
-	DECLARE_AIE4_MSG(aie4_msg_set_event_trace_categories,
+	DECLARE_AIE_MSG(aie4_msg_set_event_trace_categories,
 			 AIE4_MSG_OP_SET_EVENT_TRACE_CATEGORIES);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
@@ -444,7 +443,7 @@ int aie4_set_trace_categories(struct amdxdna_dev_hdl *ndev, u32 categories)
 
 int aie4_stop_fw_trace(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_stop_event_trace, AIE4_MSG_OP_STOP_EVENT_TRACE);
+	DECLARE_AIE_MSG(aie4_msg_stop_event_trace, AIE4_MSG_OP_STOP_EVENT_TRACE);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -459,7 +458,7 @@ int aie4_stop_fw_trace(struct amdxdna_dev_hdl *ndev)
 
 int aie4_attach_work_buffer(struct amdxdna_dev_hdl *ndev, u32 pasid, dma_addr_t addr, u32 size)
 {
-	DECLARE_AIE4_MSG(aie4_msg_dram_work_buffer, AIE4_MSG_OP_DRAM_WORK_BUFFER);
+	DECLARE_AIE_MSG(aie4_msg_dram_work_buffer, AIE4_MSG_OP_DRAM_WORK_BUFFER);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -483,7 +482,7 @@ int aie4_attach_work_buffer(struct amdxdna_dev_hdl *ndev, u32 pasid, dma_addr_t 
 
 int aie4_detach_work_buffer(struct amdxdna_dev_hdl *ndev)
 {
-	DECLARE_AIE4_MSG(aie4_msg_release_dram_work_buffer, AIE4_MSG_OP_RELEASE_DRAM_WORK_BUFFER);
+	DECLARE_AIE_MSG(aie4_msg_release_dram_work_buffer, AIE4_MSG_OP_RELEASE_DRAM_WORK_BUFFER);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -499,7 +498,7 @@ int aie4_detach_work_buffer(struct amdxdna_dev_hdl *ndev)
 int aie4_rw_aie_reg(struct amdxdna_dev_hdl *ndev, enum aie4_aie_debug_op op,
 		    u32 ctx_id, u8 row, u8 col, u32 addr, u32 *value)
 {
-	DECLARE_AIE4_MSG(aie4_msg_aie4_debug_access, AIE4_MSG_OP_AIE_DEBUG_ACCESS);
+	DECLARE_AIE_MSG(aie4_msg_aie4_debug_access, AIE4_MSG_OP_AIE_DEBUG_ACCESS);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -532,7 +531,7 @@ int aie4_rw_aie_mem(struct amdxdna_dev_hdl *ndev, enum aie4_aie_debug_op op,
 		    u32 ctx_id, u8 row, u8 col, u32 aie_addr, u64 dram_addr,
 		    u32 size, u32 pasid)
 {
-	DECLARE_AIE4_MSG(aie4_msg_aie4_debug_access, AIE4_MSG_OP_AIE_DEBUG_ACCESS);
+	DECLARE_AIE_MSG(aie4_msg_aie4_debug_access, AIE4_MSG_OP_AIE_DEBUG_ACCESS);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	int ret;
 
@@ -565,7 +564,7 @@ int aie4_rw_aie_mem(struct amdxdna_dev_hdl *ndev, enum aie4_aie_debug_op op,
 int aie4_get_aie_coredump(struct amdxdna_dev_hdl *ndev, struct amdxdna_mgmt_dma_hdl *dma_hdl,
 			  u32 context_id, u32 pasid, u32 num_bufs)
 {
-	DECLARE_AIE4_MSG(aie4_msg_aie4_coredump, AIE4_MSG_OP_AIE_COREDUMP);
+	DECLARE_AIE_MSG(aie4_msg_aie4_coredump, AIE4_MSG_OP_AIE_COREDUMP);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	dma_addr_t addr;
 	int ret;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright 2022-2025 Advanced Micro Devices, Inc.
+ * Copyright 2022-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  */
 
@@ -39,7 +39,7 @@
  */
 int aie4_hello_test(struct amdxdna_dev_hdl *ndev, struct amdxdna_ctx *ctx)
 {
-	DECLARE_AIE4_MSG(aie4_msg_create_hw_context, AIE4_MSG_OP_CREATE_HW_CONTEXT);
+	DECLARE_AIE_MSG(aie4_msg_create_hw_context, AIE4_MSG_OP_CREATE_HW_CONTEXT);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	struct amdxdna_ctx_priv *nctx = ctx->priv;
 	const struct amdxdna_dev_priv *npriv = xdna->dev_info->dev_priv;
@@ -117,3 +117,4 @@ test_done:
 	return -EBUSY;
 }
 #endif // endif UMQ_HELLO_TEST
+
