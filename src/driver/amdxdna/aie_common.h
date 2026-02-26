@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (C) 2025-2026, Advanced Micro Devices, Inc.
+ * Copyright (C) 2026, Advanced Micro Devices, Inc.
  */
 
 #ifndef _AMDXDNA_AIE_H_

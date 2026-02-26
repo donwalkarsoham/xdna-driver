@@ -113,10 +113,10 @@ static int aie4_fw_is_alive(struct amdxdna_dev *xdna)
 
 	ret = readx_poll_timeout(readl, src + offsetof(struct mailbox_info, valid),
 				 fw_is_ready, (fw_is_ready == 0x1),
-				 AIE4_INTERVAL, AIE4_TIMEOUT);
+				 AIE_INTERVAL, AIE_TIMEOUT);
 	if (ret) {
 		XDNA_ERR(xdna, "firmware is not ready (%d) after %d ms",
-			 fw_is_ready, DIV_ROUND_CLOSEST(AIE4_TIMEOUT, 1000000));
+			 fw_is_ready, DIV_ROUND_CLOSEST(AIE_TIMEOUT, 1000000));
 	}
 
 	XDNA_DBG(xdna, "firmware is ready (%d)", fw_is_ready);
@@ -650,7 +650,7 @@ static int aie4_prepare_firmware(struct amdxdna_dev_hdl *ndev,
 {
 	struct amdxdna_dev *xdna = ndev->xdna;
 	struct pci_dev *pdev = to_pci_dev(xdna->ddev.dev);
-	struct aie4_psp_config psp_conf;
+	struct psp_config psp_conf = {};
 	int i;
 
 	if (!aie4_fw_load_support(ndev))
@@ -663,7 +663,7 @@ static int aie4_prepare_firmware(struct amdxdna_dev_hdl *ndev,
 	for (i = 0; i < PSP_MAX_REGS; i++)
 		psp_conf.psp_regs[i] = ndev->psp_base + PSP_REG_OFF(ndev, i);
 
-	ndev->psp_hdl = aie4_psp_create(&pdev->dev, &psp_conf);
+	ndev->psp_hdl = aie_psp_create(&pdev->dev, &psp_conf);
 	if (!ndev->psp_hdl) {
 		XDNA_ERR(xdna, "failed to create psp");
 		return -ENOMEM;
@@ -2656,3 +2656,4 @@ const struct amdxdna_dev_ops aie4_ops = {
 	.debugfs		= aie4_debugfs_init,
 	.sriov_configure        = aie4_sriov_configure,
 };
+

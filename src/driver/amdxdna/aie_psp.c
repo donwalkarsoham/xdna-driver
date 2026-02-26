@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (C) 2026, Advanced Micro Devices, Inc.
+ */
+
+#include <linux/device.h>
+#include <linux/iopoll.h>
+#include <linux/slab.h>
+
+#include "aie_common.h"
+#include "amdxdna_xen.h"
+
+struct psp_device *aie_psp_create(struct device *dev, struct psp_config *conf)
+{
+	struct psp_device *psp;
+	u64 offset;
+
+	psp = devm_kzalloc(dev, sizeof(*psp), GFP_KERNEL);
+	if (!psp)
+		return NULL;
+
+	psp->dev = dev;
+	memcpy(psp->psp_regs, conf->psp_regs, sizeof(psp->psp_regs));
+
+	/* NPU firmware */
+	psp->fw_buf_sz = ALIGN(conf->fw_size, PSP_FW_ALIGN);
+	if (is_xen_initial_pvh_domain()) {
+		psp->fw_buffer = amdxdna_xen_alloc_buf_phys(psp->dev,
+							     psp->fw_buf_sz + PSP_FW_ALIGN,
+							     &psp->fw_dma_handle);
+		if (!psp->fw_buffer)
+			return NULL;
+		psp->fw_paddr = psp->fw_dma_handle;
+	} else {
+		psp->fw_buffer = devm_kmalloc(psp->dev,
+					      psp->fw_buf_sz + PSP_FW_ALIGN,
+					      GFP_KERNEL);
+		if (!psp->fw_buffer)
+			return NULL;
+
+		psp->fw_paddr = virt_to_phys(psp->fw_buffer);
+	}
+
+	offset = ALIGN(psp->fw_paddr, PSP_FW_ALIGN) - psp->fw_paddr;
+	psp->fw_paddr += offset;
+	memcpy(psp->fw_buffer + offset, conf->fw_buf, conf->fw_size);
+
+	if (!conf->certfw_size) {
+		dev_dbg(dev, "no cert fw");
+		goto done;
+	}
+
+	/* CERT firmware */
+	psp->certfw_buf_sz = ALIGN(conf->certfw_size, PSP_CFW_ALIGN);
+	psp->certfw_buffer = devm_kmalloc(dev,
+					  psp->certfw_buf_sz + PSP_CFW_ALIGN,
+					  GFP_KERNEL);
+	if (!psp->certfw_buffer) {
+		dev_err(dev, "no memory for cert fw buffer");
+		return NULL;
+	}
+
+	psp->certfw_paddr = virt_to_phys(psp->certfw_buffer);
+	offset = ALIGN(psp->certfw_paddr, PSP_CFW_ALIGN) - psp->certfw_paddr;
+	psp->certfw_paddr += offset;
+	memcpy(psp->certfw_buffer + offset, conf->certfw_buf, conf->certfw_size);
+done:
+	return psp;
+}
+
+int aie_psp_waitmode_poll(struct psp_device *psp)
+{
+	int mode_reg = -1, ret;
+
+	ret = readx_poll_timeout(readl, PSP_REG(psp, PSP_PWAITMODE_REG), mode_reg,
+				 (mode_reg & 0x1) == 1,
+				 PSP_POLL_INTERVAL, PSP_POLL_TIMEOUT);
+	if (ret) {
+		dev_err(psp->dev, "fw waitmode reg error, ret 0x%x", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+void aie_psp_destroy(struct device *dev, struct psp_device *psp)
+{
+	if (is_xen_initial_pvh_domain())
+		amdxdna_xen_free_buf_phys(dev, psp->fw_buffer, psp->fw_dma_handle,
+					  psp->fw_buf_sz + PSP_FW_ALIGN);
+}
+
