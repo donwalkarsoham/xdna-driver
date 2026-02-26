@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (C) 2025, Advanced Micro Devices, Inc.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc.
  */
 
 #ifndef _AMDXDNA_AIE_H_
@@ -10,11 +10,20 @@
 #define PSP_REG_OFF(ndev, idx) ((ndev)->priv->psp_regs_off[(idx)].offset)
 #define SRAM_REG_OFF(ndev, idx) ((ndev)->priv->sram_offs[(idx)].offset)
 
-#define SMU_REG(ndev, idx) \
-({ \
-	typeof(ndev) _ndev = ndev; \
-	((_ndev)->smu_base + (_ndev)->priv->smu_regs_off[(idx)].offset); \
-})
+#define SMU_RESULT_OK	1
+
+/* SMU commands */
+#define AIE_SMU_POWER_ON		0x3
+#define AIE_SMU_POWER_OFF		0x4
+/* For SMU v0 */
+#define AIE_SMU_SET_MPNPUCLK_FREQ	0x5
+#define AIE_SMU_SET_HCLK_FREQ		0x6
+/* For SMU v1 */
+#define AIE_SMU_SET_SOFT_DPMLEVEL	0x7
+#define AIE_SMU_SET_HARD_DPMLEVEL	0x8
+
+#define SMU_REG_BAR(ndev, idx) ((ndev)->priv->smu_regs_off[(idx)].bar_idx)
+#define SMU_REG_OFF(ndev, idx) ((ndev)->priv->smu_regs_off[(idx)].offset)
 
 #define DEFINE_BAR_OFFSET(reg_name, bar, reg_addr) \
 	[reg_name] = {bar##_BAR_INDEX, (reg_addr) - bar##_BAR_BASE}
@@ -117,6 +126,16 @@ struct aie_bar_off_pair {
 	u32	offset;
 };
 
+struct smu_config {
+	void __iomem	*smu_regs[SMU_MAX_REGS];
+	u32		interval;
+	u32		timeout;
+};
+
+struct smu_device;
+struct smu_device *aie_smu_create(struct device *dev, struct smu_config *conf);
+int aie_smu_exec(struct smu_device *smu, u32 reg_cmd, u32 reg_arg, u32 *out);
+
 struct amdxdna_dev_hdl;
 struct aie_hw_ops {
 	int (*set_dpm)(struct amdxdna_dev_hdl *ndev, u32 dpm_level);
@@ -124,3 +143,4 @@ struct aie_hw_ops {
 };
 
 #endif /* _AMDXDNA_AIE_H_ */
+

@@ -108,6 +108,7 @@ struct amdxdna_dev_hdl {
 	const struct amdxdna_dev_priv	*priv;
 	void				*xrs_hdl;
 	struct psp_device		*psp_hdl;
+	struct smu_device		*smu_hdl;
 
 	u32				partition_id;
 
@@ -274,3 +275,4 @@ struct cert_comp *aie4_lookup_cert_comp(struct amdxdna_dev_hdl *ndev, u32 msix_i
 void aie4_put_cert_comp(struct cert_comp *comp);
 
 #endif /* _AIE4_PCI_H_ */
+
