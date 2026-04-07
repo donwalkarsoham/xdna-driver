@@ -26,16 +26,18 @@
 #include <sstream>
 #include <string>
 #include <dirent.h>
+#include <sys/stat.h>
 
 #include <libgen.h>
 #include <sys/utsname.h>
 #include <unistd.h>
-
-// FIXME
+#include <sys/mman.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+
+// FIXME
 #include "../../src/include/uapi/drm_local/amdxdna_accel.h"
-// enf of FIXME
+// end of FIXME
 
 struct driver_version {
   unsigned int major;
@@ -248,6 +250,16 @@ dev_filter_is_npu4_and_amdxdna_drv(device::id_type id, device* dev)
   return true;
 }
 
+static void TEST_async_error_io_any(device::id_type id, std::shared_ptr<device>& sdev, arg_type& arg)
+{
+  if (dev_filter_is_npu4(id, sdev.get()))
+    TEST_async_error_io(id, sdev, arg);
+  else if (dev_filter_is_aie4(id, sdev.get()))
+    TEST_async_error_aie4_io(id, sdev, arg);
+  else
+    throw std::runtime_error("async error io test: device is neither NPU4 nor AIE4");
+}
+
 std::string
 get_sysfs_path(device* dev)
 {
@@ -309,7 +321,7 @@ get_bo_usage(device* dev, int pid)
     .num_element = 1,
     .buffer = reinterpret_cast<uintptr_t>(&usage)
   };
-  int ret = ioctl(fd, DRM_IOCTL_AMDXDNA_GET_ARRAY, &arg);
+  int ret = ::ioctl(fd, DRM_IOCTL_AMDXDNA_GET_ARRAY, &arg);
   close(fd);
   if (ret == -1) {
     throw std::runtime_error("ioctl(DRM_IOCTL_AMDXDNA_GET_ARRAY) failed");
@@ -539,19 +551,86 @@ TEST_create_free_internal_bo(device::id_type id, std::shared_ptr<device>& sdev, 
   auto dev = sdev.get();
   auto boflags = XRT_BO_FLAGS_HOST_ONLY;
   auto ext_boflags = XRT_BO_USE_CTRLPKT << 4;
-  auto size = 0x4000;
-  auto bo = dev->alloc_bo(size, get_bo_flags(boflags, ext_boflags));
+  size_t size = 0x4000;
+  auto int_bo = std::make_unique<bo>(dev, size, boflags, ext_boflags);
+  auto ext_bo = std::make_unique<bo>(dev, size, boflags, 0);
   auto [total, internal, heap] = get_bo_usage(dev, getpid());
-  uint64_t expected_total = size;
-  uint64_t expected_internal = size;
+  uint64_t expected_total = int_bo->size() + ext_bo->size();
+  uint64_t expected_internal = int_bo->size();
   uint64_t expected_heap = 0;
   if (dev_filter_is_aie2(id, dev)) {
-    // Add heap size
+    // Add default heap size
     expected_total += 64 * 1024 * 1024;
     expected_internal += 64 * 1024 * 1024;
   }
   if (total != expected_total || internal != expected_internal || heap != expected_heap)
     throw std::runtime_error("BO usage mis-match");
+}
+
+class mmapped_file {
+public:
+  mmapped_file(size_t size, bool readonly)
+  {
+    char tmpl[] = "/tmp/xrt_bo_mmap_XXXXXX";
+    auto fd = ::mkstemp(tmpl);
+    if (fd < 0)
+      throw std::runtime_error("mkstemp failed");
+
+    // Ensure only the owner can access the file, without changing process umask
+    if (::fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+      ::close(fd);
+      ::unlink(tmpl);
+      throw std::runtime_error("fchmod failed");
+    }
+    ::unlink(tmpl);
+
+    if (::ftruncate(fd, static_cast<off_t>(size)) != 0) {
+      ::close(fd);
+      throw std::runtime_error("ftruncate failed");
+    }
+
+    auto mapped = ::mmap(nullptr, size,
+      readonly ? PROT_READ : PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) {
+      ::close(fd);
+      throw std::runtime_error("mmap failed");
+    }
+
+    m_fd = fd;
+    m_ptr = mapped;
+    m_size = size;
+  }
+
+  ~mmapped_file()
+  {
+    ::munmap(m_ptr, m_size);
+    ::close(m_fd);
+  }
+
+  void *get()
+  {
+    return m_ptr;
+  }
+
+private:
+  int m_fd = -1;
+  size_t m_size = 0;
+  void *m_ptr = nullptr;
+};
+
+void
+TEST_create_free_mmaped_uptr_bo(device::id_type id, std::shared_ptr<device>& sdev, arg_type& arg)
+{
+  size_t size = 1ul * 1024 * 1024 * 1024;
+
+  // Expect to pass
+  try {
+    mmapped_file f(size, true);
+    auto buf = std::make_unique<bo>(sdev.get(), f.get(), size, XCL_BO_FLAGS_HOST_ONLY, 0);
+  } catch (const std::system_error& e) {
+    std::cout << e.what() << std::endl;
+    throw std::runtime_error("mmaped user ptr BO test has failed");
+  }
 }
 
 void
@@ -835,7 +914,7 @@ std::vector<test_case> test_list {
   },
   // Keep bad run before normal run to test recovery of hw ctx
   test_case{ "io test async error", {},
-    TEST_POSITIVE, dev_filter_is_npu4, TEST_async_error_io, {}
+    TEST_POSITIVE, dev_filter_is_aie4_or_npu4, TEST_async_error_io_any, {}
   },
   test_case{ "io test real kernel good run", {},
     TEST_POSITIVE, dev_filter_xdna, TEST_io, { IO_TEST_NORMAL_RUN, 1 }
@@ -931,7 +1010,10 @@ std::vector<test_case> test_list {
     TEST_POSITIVE, dev_filter_is_xdna_and_amdxdna_drv, TEST_create_free_uptr_bo, {XCL_BO_FLAGS_HOST_ONLY, 0, 128}
   },
   test_case{ "io test with user pointer BOs", {},
-    TEST_POSITIVE, dev_filter_is_aie2_and_amdxdna_drv, TEST_io_with_ubuf_bo, {}
+    TEST_POSITIVE, dev_filter_is_xdna_and_amdxdna_drv, TEST_io_with_ubuf_bo, {}
+  },
+   test_case{ "multi-command preempt full ELF io test real kernel good run", {},
+    TEST_POSITIVE, dev_filter_is_aie4_or_npu4, TEST_preempt_full_elf_io, { IO_TEST_FORCE_PREEMPTION, 8 }
   },
   test_case{ "Real kernel delay run for auto-suspend/resume", {},
     TEST_POSITIVE, dev_filter_is_aie, TEST_io_suspend_resume, {}
@@ -942,17 +1024,14 @@ std::vector<test_case> test_list {
   //test_case{ "io test no-op kernel good run", {},
   //  TEST_POSITIVE, dev_filter_is_aie2, TEST_io, { IO_TEST_NOOP_RUN, 1 }
   //},
-  test_case{ "multi-command preempt full ELF io test real kernel good run", {},
-    TEST_POSITIVE, dev_filter_is_npu4_and_amdxdna_drv, TEST_preempt_full_elf_io, { IO_TEST_FORCE_PREEMPTION, 8 }
-  },
   // get async error in multi thread after async error has raised.
   test_case{ "get async error in multithread - HAS ASYNC ERROR", {},
-    TEST_POSITIVE, dev_filter_is_npu4, TEST_async_error_multi, {true}
+    TEST_POSITIVE, dev_filter_is_aie4_or_npu4, TEST_async_error_multi, {true}
   },
   test_case{ "gemm and debug BO", {},
     TEST_POSITIVE, dev_filter_is_aie4_or_npu4, TEST_io_gemm, {}
   },
-  test_case{ "create and free internal bo", {~0U, ~0U},
+  test_case{ "create and free internal bo", {},
     TEST_POSITIVE, dev_filter_is_aie, TEST_create_free_internal_bo, {}
   },
   test_case{ "export BO then close device", {},
@@ -970,11 +1049,11 @@ std::vector<test_case> test_list {
   test_case{ "failed chained command", {},
     TEST_POSITIVE, dev_filter_is_npu4, TEST_io_runlist_bad_cmd, {false}
   },
-  test_case{ "timed out chained command", {~0U, ~0U},
-    TEST_POSITIVE, dev_filter_is_npu4, TEST_io_runlist_bad_cmd, {true}
+  test_case{ "timed out chained command", {},
+    TEST_POSITIVE, dev_filter_is_aie4_or_npu4, TEST_io_runlist_bad_cmd, {true}
   },
-  test_case{ "io test aie4 async error", {},
-    TEST_POSITIVE, dev_filter_is_aie4, TEST_async_error_aie4_io, {}
+  test_case{ "create and free user ptr BO with mmapped ptr", {},
+    TEST_POSITIVE, dev_filter_xdna, TEST_create_free_mmaped_uptr_bo, {}
   },
 };
 
@@ -1106,7 +1185,7 @@ get_driver_version(unsigned int *major, unsigned int *minor, device::id_type dev
   version.desc_len = sizeof(desc);
   version.desc = desc;
 
-  int result = ioctl(fd, DRM_IOCTL_VERSION, &version);
+  int result = ::ioctl(fd, DRM_IOCTL_VERSION, &version);
   close(fd);
   if (result) {
     throw std::runtime_error("ioctl(DRM_IOCTL_VERSION) failed");
@@ -1171,8 +1250,15 @@ main(int argc, char **argv)
       }
     }
     case 'k': {
-      if (get_driver_version(&current_drv.major, &current_drv.minor))
+      try {
+        get_driver_version(&current_drv.major, &current_drv.minor);
+      } catch (const std::exception& e) {
+        std::cerr << "Caught std::exception: " << e.what() << std::endl;
         return 1;
+      } catch (...) {
+        std::cerr << "Caught unknown exception" << std::endl;
+        return 1;
+      }
       std::cout << "Evaluating test result based on driver version: "
         << current_drv.major << "." << current_drv.minor << std::endl;
       break;

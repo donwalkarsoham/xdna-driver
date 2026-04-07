@@ -49,7 +49,7 @@ aie4_health_get_num_uc(struct aie4_msg_app_health_report *h)
 }
 
 static inline u32
-aie4_health_get_runlist_read_idx(struct aie4_msg_app_health_report *h)
+aie4_health_runlist_read_idx(struct aie4_msg_app_health_report *h)
 {
 	if (aie4_health_report_is_legacy(h))
 		return 0;
@@ -109,8 +109,8 @@ struct amdxdna_ctx_priv {
 #define CTX_STATE_CONNECTED		0x1
 	u32                             status;
 
-	bool					cached_health_valid;
-	struct aie4_msg_app_health_report	cached_health_report;
+	bool					cached_ctx_error_valid;
+	struct aie4_async_ctx_error		cached_ctx_error;
 };
 
 enum aie4_dev_status {
@@ -262,7 +262,6 @@ int aie4_cmd_submit(struct amdxdna_sched_job *job,
 		    u32 *syncobj_hdls, u64 *syncobj_points, u32 syncobj_cnt, u64 *seq);
 int aie4_cmd_wait(struct amdxdna_ctx *ctx, u64 seq, u32 timeout);
 int aie4_ctx_config(struct amdxdna_ctx *ctx, u32 type, u64 value, void *buf, u32 size);
-int aie4_parse_priority(u32 priority);
 
 /* aie4_smu.c */
 int aie4_smu_start(struct amdxdna_dev_hdl *ndev);

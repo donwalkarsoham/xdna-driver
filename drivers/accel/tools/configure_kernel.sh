@@ -345,28 +345,53 @@ int main(void)
 }
 EOF
 
-# Test drm_sched_start() 2-arg signature (latest upstream):
-# void drm_sched_start(struct drm_gpu_scheduler *sched, int errno);
-# Older kernels had a 1-arg version without the errno parameter.
-try_compile HAVE_2_arg_drm_sched_start << 'EOF'
+# Test DRM_GPU_SCHED_STAT_NO_HANG availability (kernel >= 6.17)
+# Allows timedout_job to report "not hung" without triggering recovery
+try_compile HAVE_6_17_drm_gpu_sched_stat_no_hang << 'EOF'
 #include <drm/gpu_scheduler.h>
 int main(void)
 {
-	struct drm_gpu_scheduler *a = NULL;
-
-	drm_sched_start(a, 0);
+	int a = DRM_GPU_SCHED_STAT_NO_HANG;
 	return 0;
 }
 EOF
 
+# Test drm_sched_start() with int errno parameter (6.13+ or backports):
+# void drm_sched_start(struct drm_gpu_scheduler *sched, int errno);
+# Use __builtin_types_compatible_p to force a hard error on type mismatch,
+# even when the kernel build does not enable -Werror.
+try_compile HAVE_6_13_drm_sched_start_errno << 'EOF'
+#include <drm/gpu_scheduler.h>
+typedef void (*expected_t)(struct drm_gpu_scheduler *, int);
+_Static_assert(__builtin_types_compatible_p(typeof(&drm_sched_start), expected_t),
+	       "drm_sched_start does not match (sched, int) signature");
+int main(void) { return 0; }
+EOF
+
+# Test drm_sched_start() with bool full_recovery parameter (pre-6.12):
+# void drm_sched_start(struct drm_gpu_scheduler *sched, bool full_recovery);
+try_compile HAVE_drm_6_10_sched_start_full_recovery << 'EOF'
+#include <drm/gpu_scheduler.h>
+typedef void (*expected_t)(struct drm_gpu_scheduler *, _Bool);
+_Static_assert(__builtin_types_compatible_p(typeof(&drm_sched_start), expected_t),
+	       "drm_sched_start does not match (sched, bool) signature");
+int main(void) { return 0; }
+EOF
+
 # Test BIT_U64 exists
-try_compile HAVE_bit_u64 << 'EOF'
+try_compile HAVE_6_16_bit_u64 << 'EOF'
 #include <linux/bits.h>
 int main(void)
 {
 	uint64_t a = BIT_U64(1);
 	return 0;
 }
+EOF
+cat >> "$OUT" <<'EOF'
+#ifndef HAVE_6_16_bit_u64
+#define BIT_U64(n)		BIT_ULL(n)
+#define GENMASK_U64(m, n)	GENMASK_ULL(m, n)
+#endif
 EOF
 
 # Test amd_pmf_get_npu_data exists

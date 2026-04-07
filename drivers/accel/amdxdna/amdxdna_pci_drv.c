@@ -40,9 +40,11 @@ MODULE_FIRMWARE("amdnpu/17f0_11/npu_7.sbin");
  * 0.5: Support getting telemetry data
  * 0.6: Support preemption
  * 0.7: Support getting power and utilization data
+ * 0.8: Support BO usage query
+ * 0.9: Add new device type AMDXDNA_DEV_TYPE_PF
  */
 #define AMDXDNA_DRIVER_MAJOR		0
-#define AMDXDNA_DRIVER_MINOR		7
+#define AMDXDNA_DRIVER_MINOR		9
 
 /*
  * Bind the driver base on (vendor_id, device_id) pair and later use the
@@ -52,6 +54,8 @@ MODULE_FIRMWARE("amdnpu/17f0_11/npu_7.sbin");
 static const struct pci_device_id pci_ids[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1502) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x17f0) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x17f2) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1B0B) },
 	{0}
 };
 
@@ -62,6 +66,8 @@ static const struct amdxdna_device_id amdxdna_ids[] = {
 	{ 0x17f0, 0x10, &dev_npu4_info },
 	{ 0x17f0, 0x11, &dev_npu5_info },
 	{ 0x17f0, 0x20, &dev_npu6_info },
+	{ 0x17f2, 0x10, &dev_npu3_pf_info },
+	{ 0x1B0B, 0x10, &dev_npu3_pf_info },
 	{0}
 };
 
@@ -124,10 +130,11 @@ static void amdxdna_client_cleanup(struct amdxdna_client *client)
 	amdxdna_hwctx_remove_all(client);
 	xa_destroy(&client->hwctx_xa);
 	cleanup_srcu_struct(&client->hwctx_srcu);
-	mutex_destroy(&client->mm_lock);
 
 	if (client->dev_heap)
 		drm_gem_object_put(to_gobj(client->dev_heap));
+
+	mutex_destroy(&client->mm_lock);
 
 	if (!IS_ERR_OR_NULL(client->sva))
 		iommu_sva_unbind_device(client->sva);
@@ -223,6 +230,34 @@ static const struct drm_ioctl_desc amdxdna_drm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(AMDXDNA_SET_STATE, amdxdna_drm_set_state_ioctl, DRM_ROOT_ONLY),
 };
 
+static void amdxdna_show_fdinfo(struct drm_printer *p, struct drm_file *filp)
+{
+	struct amdxdna_client *client = filp->driver_priv;
+	size_t heap_usage, external_usage, internal_usage;
+
+	mutex_lock(&client->mm_lock);
+
+	heap_usage = client->heap_usage;
+	internal_usage = client->total_int_bo_usage;
+	external_usage = client->total_bo_usage - internal_usage;
+
+	mutex_unlock(&client->mm_lock);
+
+	/*
+	 * Note for driver specific BO memory usage stat.
+	 * Total memory alloc = amdxdna-internal-alloc + amdxdna-external-alloc
+	 */
+	drm_printf(p, "amdxdna-heap-alloc:\t%lu KiB\n", heap_usage / 1024);
+	drm_printf(p, "amdxdna-internal-alloc:\t%lu KiB\n", internal_usage / 1024);
+	drm_printf(p, "amdxdna-external-alloc:\t%lu KiB\n", external_usage / 1024);
+	/*
+	 * Note for DRM standard BO memory stat.
+	 * drm-total-memory counts both DEV BO and HEAP BO
+	 * drm-shared-memory counts BO imported
+	 */
+	drm_show_memory_stats(p, filp);
+}
+
 static const struct file_operations amdxdna_fops = {
 	.owner		= THIS_MODULE,
 	.open		= accel_open,
@@ -233,6 +268,7 @@ static const struct file_operations amdxdna_fops = {
 	.read		= drm_read,
 	.llseek		= noop_llseek,
 	.mmap		= drm_gem_mmap,
+	.show_fdinfo	= drm_show_fdinfo,
 #ifdef FOP_UNSIGNED_OFFSET
 	.fop_flags	= FOP_UNSIGNED_OFFSET,
 #endif
@@ -250,7 +286,7 @@ const struct drm_driver amdxdna_drm_drv = {
 	.postclose = amdxdna_drm_close,
 	.ioctls = amdxdna_drm_ioctls,
 	.num_ioctls = ARRAY_SIZE(amdxdna_drm_ioctls),
-
+	.show_fdinfo = amdxdna_show_fdinfo,
 	.gem_create_object = amdxdna_gem_create_shmem_object_cb,
 	.gem_prime_import = amdxdna_gem_prime_import,
 };
@@ -369,12 +405,24 @@ static const struct dev_pm_ops amdxdna_pm_ops = {
 	RUNTIME_PM_OPS(amdxdna_pm_suspend, amdxdna_pm_resume, NULL)
 };
 
+static int amdxdna_sriov_configure(struct pci_dev *pdev, int num_vfs)
+{
+	struct amdxdna_dev *xdna = pci_get_drvdata(pdev);
+
+	guard(mutex)(&xdna->dev_lock);
+	if (xdna->dev_info->ops->sriov_configure)
+		return xdna->dev_info->ops->sriov_configure(xdna, num_vfs);
+
+	return -ENOENT;
+}
+
 static struct pci_driver amdxdna_pci_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = pci_ids,
 	.probe = amdxdna_probe,
 	.remove = amdxdna_remove,
 	.driver.pm = &amdxdna_pm_ops,
+	.sriov_configure = amdxdna_sriov_configure,
 };
 
 module_pci_driver(amdxdna_pci_driver);

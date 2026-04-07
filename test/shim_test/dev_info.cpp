@@ -38,7 +38,7 @@ binary_info binary_infos[] = {
       { "DPU_PDI_6:IPUV1CNN",         {6} },
       { "DPU_PDI_7:IPUV1CNN",         {7} },
     },
-    .path = "npu1_workspace/1x4.xclbin",
+    .path = "local_shim_test_data/npu1/1x4/1x4.xclbin",
     .data = "data",
     .flow = LEGACY,
   },
@@ -56,7 +56,7 @@ binary_info binary_infos[] = {
       { "DPU_PDI_6:IPUV1CNN",         {6} },
       { "DPU_PDI_7:IPUV1CNN",         {7} },
     },
-    .path = "npu1_workspace/1x4.xclbin",
+    .path = "local_shim_test_data/npu1/1x4/1x4.xclbin",
     .data = "data",
     .flow = LEGACY,
   },
@@ -78,6 +78,7 @@ binary_info binary_infos[] = {
       { "DPU:dpu", {0xffffffff} },
     },
     .path = "local_shim_test_data/npu3/bad/bad_timeout.elf",
+    .extra = { {"exp_status", exp_status_timeout}, {"exp_val", "5"} },
     .flow = FULL_ELF,
   },
   {
@@ -102,6 +103,16 @@ binary_info binary_infos[] = {
   },
   {
     .tag = "good",
+    .device = npu3_device_id,
+    .revision_id = npu_any_revision_id,
+    .ip_name2idx = {
+      { "DPU:dpu", {0xffffffff} },
+    },
+    .path = "local_shim_test_data/npu3/resnet50/resnet50.elf",
+    .flow = PREEMPT_FULL_ELF,
+  },
+  {
+    .tag = "good",
     .device = npu3_device_id1,
     .revision_id = npu_any_revision_id,
     .ip_name2idx = {
@@ -118,6 +129,7 @@ binary_info binary_infos[] = {
       { "DPU:dpu", {0xffffffff} },
     },
     .path = "local_shim_test_data/npu3a/bad/bad_timeout.elf",
+    .extra = { {"exp_status", exp_status_timeout}, {"exp_val", "5"} },
     .flow = FULL_ELF,
   },
   {
@@ -142,6 +154,16 @@ binary_info binary_infos[] = {
   },
   {
     .tag = "good",
+    .device = npu3_device_id1,
+    .revision_id = npu_any_revision_id,
+    .ip_name2idx = {
+      { "DPU:dpu", {0xffffffff} },
+    },
+    .path = "local_shim_test_data/npu3a/resnet50/resnet50.elf",
+    .flow = PREEMPT_FULL_ELF,
+  },
+  {
+    .tag = "good",
     .device = npu4_device_id,
     .revision_id = npu4_revision_id,
     .ip_name2idx = {
@@ -160,7 +182,7 @@ binary_info binary_infos[] = {
       { "DPU_PDI_12:IPUV1CNN",        {12} },
       { "DPU_PDI_13:IPUV1CNN",        {13} },
     },
-    .path = "npu4_workspace/1x4.xclbin",
+    .path = "local_shim_test_data/npu4/1x4/1x4.xclbin",
     .data = "data",
     .flow = LEGACY,
   },
@@ -184,7 +206,7 @@ binary_info binary_infos[] = {
       { "DPU_PDI_12:IPUV1CNN",        {12} },
       { "DPU_PDI_13:IPUV1CNN",        {13} },
     },
-    .path = "npu5_workspace/1x4.xclbin",
+    .path = "local_shim_test_data/npu5/1x4/1x4.xclbin",
     .data = "data",
     .flow = LEGACY,
   },
@@ -208,7 +230,7 @@ binary_info binary_infos[] = {
       { "DPU_PDI_12:IPUV1CNN",         {12} },
       { "DPU_PDI_13:IPUV1CNN",         {13} },
     },
-    .path = "npu6_workspace/1x4.xclbin",
+    .path = "local_shim_test_data/npu6/1x4/1x4.xclbin",
     .data = "data",
     .flow = LEGACY,
   },

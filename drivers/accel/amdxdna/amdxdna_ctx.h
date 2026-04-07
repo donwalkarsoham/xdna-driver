@@ -119,6 +119,7 @@ struct amdxdna_hwctx {
 	container_of(j, struct amdxdna_sched_job, base)
 
 enum amdxdna_job_opcode {
+	DEFAULT_IO,
 	SYNC_DEBUG_BO,
 	ATTACH_DEBUG_BO,
 	DETACH_DEBUG_BO,
@@ -127,6 +128,11 @@ enum amdxdna_job_opcode {
 struct amdxdna_drv_cmd {
 	enum amdxdna_job_opcode	opcode;
 	u32			result;
+};
+
+struct app_health_report;
+union amdxdna_job_priv {
+	struct app_health_report *aie2_health;
 };
 
 struct amdxdna_sched_job {
@@ -143,10 +149,12 @@ struct amdxdna_sched_job {
 	u64			seq;
 	struct amdxdna_drv_cmd	*drv_cmd;
 	struct amdxdna_gem_obj	*cmd_bo;
-	void			*priv;
+	union amdxdna_job_priv	priv;
 	size_t			bo_cnt;
 	struct drm_gem_object	*bos[] __counted_by(bo_cnt);
 };
+
+#define aie2_job_health priv.aie2_health
 
 static inline u32
 amdxdna_cmd_get_op(struct amdxdna_gem_obj *abo)

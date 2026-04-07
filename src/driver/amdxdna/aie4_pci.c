@@ -943,6 +943,41 @@ static int aie4_msg_destroy_context(struct amdxdna_dev_hdl *ndev, u32 hw_context
 	return aie4_send_msg_wait(ndev, &msg);
 }
 
+static u32 aie4_parse_priority_to_dev(u32 priority)
+{
+	switch (priority) {
+	case AMDXDNA_QOS_LOW_PRIORITY:
+		return AIE4_CONTEXT_PRIORITY_BAND_IDLE;
+	case AMDXDNA_QOS_NORMAL_PRIORITY:
+		return AIE4_CONTEXT_PRIORITY_BAND_NORMAL;
+	case AMDXDNA_QOS_HIGH_PRIORITY:
+		return AIE4_CONTEXT_PRIORITY_BAND_FOCUS;
+	case AMDXDNA_QOS_REALTIME_PRIORITY:
+		return AIE4_CONTEXT_PRIORITY_BAND_REAL_TIME;
+	default:
+		return AIE4_CONTEXT_PRIORITY_BAND_NORMAL;
+	}
+}
+
+static int aie4_ctx_init_dpm(struct amdxdna_ctx *ctx)
+{
+	DECLARE_AIE4_MSG(aie4_msg_configure_hw_context, AIE4_MSG_OP_CONFIGURE_HW_CONTEXT);
+	struct amdxdna_dev *xdna = ctx->client->xdna;
+	struct amdxdna_dev_hdl *ndev = xdna->dev_handle;
+	int ret;
+
+	req.hw_context_id = ctx->priv->hw_ctx_id;
+	req.property = AIE4_CONFIGURE_HW_CONTEXT_PROPERTY_DPM;
+	req.dpm.egops = ctx->qos.gops;
+	req.dpm.fps = ctx->qos.fps;
+	req.dpm.data_movement = ctx->qos.dma_bandwidth;
+	req.dpm.latency_in_us = ctx->qos.latency;
+
+	ret = aie4_send_msg_wait(ndev, &msg);
+
+	return ret;
+}
+
 int aie4_create_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_ctx *ctx)
 {
 	DECLARE_AIE4_MSG(aie4_msg_create_hw_context, AIE4_MSG_OP_CREATE_HW_CONTEXT);
@@ -986,7 +1021,7 @@ int aie4_create_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_ctx *ctx)
 	req.hsa_addr_high = upper_32_bits(amdxdna_gem_dev_addr(nctx->umq_bo));
 	req.hsa_addr_low = lower_32_bits(amdxdna_gem_dev_addr(nctx->umq_bo));
 
-	req.priority_band = ctx->qos.priority;
+	req.priority_band = aie4_parse_priority_to_dev(ctx->qos.priority);
 
 	XDNA_DBG(xdna, "set pasid raw 0x%x", req.pasid.raw);
 
@@ -1049,6 +1084,10 @@ int aie4_create_context(struct amdxdna_dev_hdl *ndev, struct amdxdna_ctx *ctx)
 	ndev->hwctx_cnt++;
 	XDNA_DBG(xdna, "created hw context id %d", nctx->hw_ctx_id);
 
+	ret = aie4_ctx_init_dpm(ctx);
+	if (ret)
+		XDNA_WARN_ONCE(xdna, "Failed to init ctx dpm");
+
 	return 0;
 done:
 	XDNA_ERR(xdna, "failed %d", ret);
@@ -1098,10 +1137,12 @@ static int aie4_xrs_load(void *cb_arg, struct xrs_action_load *action)
 	ret = aie4_create_context(xdna->dev_handle, ctx);
 	mutex_unlock(&xdna->dev_handle->aie4_lock);
 
-	if (ret)
+	if (ret) {
 		XDNA_ERR(xdna, "create context failed, ret %d", ret);
+		return ret;
+	}
 
-	return ret;
+	return 0;
 }
 
 static int aie4_xrs_unload(void *cb_arg)
@@ -1229,10 +1270,30 @@ void aie4_reset_prepare(struct amdxdna_dev *xdna)
 	XDNA_INFO(xdna, "reset prepare finished");
 }
 
-int aie4_reset_done(struct amdxdna_dev *xdna)
+static int aie4_restore_services(struct amdxdna_dev *xdna)
 {
 	struct amdxdna_dev_hdl *ndev = xdna->dev_handle;
 	struct pci_dev *pdev = to_pci_dev(xdna->ddev.dev);
+	int ret;
+
+	if (is_npu3_pf_dev(pdev) && ndev->num_vfs) {
+		DECLARE_AIE4_MSG(aie4_msg_create_vfs, AIE4_MSG_OP_CREATE_VFS);
+
+		req.vf_cnt = ndev->num_vfs;
+		ret = aie4_send_msg_wait(ndev, &msg);
+		if (ret)
+			XDNA_ERR(xdna, "create vfs op failed: %d", ret);
+	} else {
+		aie4_ctx_resume_all(xdna);
+		ret = 0;
+	}
+
+	return ret;
+}
+
+int aie4_reset_done(struct amdxdna_dev *xdna)
+{
+	struct amdxdna_dev_hdl *ndev = xdna->dev_handle;
 	int ret;
 
 	XDNA_INFO(xdna, "reset done start");
@@ -1247,27 +1308,12 @@ int aie4_reset_done(struct amdxdna_dev *xdna)
 		goto error;
 
 	ret = aie4_partition_init(ndev);
-	if (ret) {
-		aie4_mailbox_fini(ndev);
-		goto error;
-	}
+	if (ret)
+		goto mailbox_fini;
 
-	if (is_npu3_pf_dev(pdev)) {
-		int numvfs;
-
-		mutex_unlock(&ndev->aie4_lock);
-		numvfs = aie4_sriov_configure(xdna, ndev->num_vfs);
-		mutex_lock(&ndev->aie4_lock);
-
-		if (numvfs != ndev->num_vfs) {
-			XDNA_ERR(xdna, "reconfigure %d num_vfs but configured %d",
-				 ndev->num_vfs, numvfs);
-			ret = -EINVAL;
-			goto error;
-		}
-	} else {
-		aie4_ctx_resume_all(xdna);
-	}
+	ret = aie4_restore_services(xdna);
+	if (ret)
+		goto mailbox_fini;
 
 	/* mark dev status to allow new incoming requests */
 	ndev->dev_status = AIE4_DEV_START;
@@ -1277,6 +1323,8 @@ int aie4_reset_done(struct amdxdna_dev *xdna)
 	XDNA_INFO(xdna, "reset done finished");
 	return 0;
 
+mailbox_fini:
+	aie4_mailbox_fini(ndev);
 error:
 	mutex_unlock(&ndev->aie4_lock);
 	return ret;
@@ -1318,10 +1366,10 @@ static int aie4_hw_resume(struct amdxdna_dev *xdna)
 	}
 
 	mutex_lock(&ndev->aie4_lock);
-	aie4_ctx_resume_all(xdna);
+	ret = aie4_restore_services(xdna);
 	mutex_unlock(&ndev->aie4_lock);
 
-	return 0;
+	return ret;
 
 clear_pci:
 	pci_clear_master(pdev);
@@ -1942,7 +1990,7 @@ static int aie4_get_frame_boundary_preempt_state(struct amdxdna_client *client,
 
 	preempt.state = 1;
 
-	min = min(args->buffer, sizeof(preempt));
+	min = min(args->buffer_size, sizeof(preempt));
 	if (copy_to_user(u64_to_user_ptr(args->buffer), &preempt, min))
 		return -EFAULT;
 
@@ -2096,7 +2144,7 @@ static int aie4_get_ctx_status_array(struct amdxdna_client *client,
 			tmp[hw_i].preemptions = 0;
 			tmp[hw_i].errors = 0;
 			tmp[hw_i].pasid = tmp_client->pasid;
-			tmp[hw_i].priority = aie4_parse_priority(ctx->qos.priority);
+			tmp[hw_i].priority = ctx->qos.priority;
 			tmp[hw_i].gops = ctx->qos.gops;
 			tmp[hw_i].fps = ctx->qos.fps;
 			tmp[hw_i].dma_bandwidth = ctx->qos.dma_bandwidth;
