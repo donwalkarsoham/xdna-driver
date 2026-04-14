@@ -370,7 +370,7 @@ EOF
 
 # Test drm_sched_start() with bool full_recovery parameter (pre-6.12):
 # void drm_sched_start(struct drm_gpu_scheduler *sched, bool full_recovery);
-try_compile HAVE_drm_6_10_sched_start_full_recovery << 'EOF'
+try_compile HAVE_6_10_drm_sched_start_full_recovery << 'EOF'
 #include <drm/gpu_scheduler.h>
 typedef void (*expected_t)(struct drm_gpu_scheduler *, _Bool);
 _Static_assert(__builtin_types_compatible_p(typeof(&drm_sched_start), expected_t),
@@ -406,6 +406,23 @@ int main(void)
 	int ret = amd_pmf_get_npu_data(&info);
 	return 0;
 }
+EOF
+
+#Test drm_fdinfo_print_size exists
+try_compile HAVE_6_14_drm_fdinfo_print_size << 'EOF'
+#include <drm/drm_file.h>
+int main(void)
+{
+	struct drm_printer *p = NULL;
+	drm_fdinfo_print_size(p, NULL, NULL, NULL, 0);
+}
+EOF
+cat >> "$OUT" <<'EOF'
+#ifndef HAVE_6_14_drm_fdinfo_print_size
+#define drm_fdinfo_print_size(p, prefix, stat, region, sz)		\
+	drm_printf(p, "%s-%s-%s:\t%llu KiB\n", prefix, stat, region,	\
+	(u64)(sz) / 1024)
+#endif
 EOF
 
 # ---- Header trailer ----------------------------------------------------

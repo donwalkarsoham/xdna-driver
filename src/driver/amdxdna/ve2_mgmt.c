@@ -27,15 +27,22 @@ static void cert_setup_partition(struct amdxdna_dev *xdna,
 				 struct amdxdna_ctx_priv *nhwctx,
 				 u32 col, struct handshake *cert_hs)
 {
+	struct ve2_config_hwctx *hwctx_cfg = &nhwctx->hwctx_config[col];
+	u64 hsa_addr = 0xFFFFFFFFFFFFFFFF;
 	u32 start_col = nhwctx->start_col;
 	u32 num_col = nhwctx->num_col;
-	u64 hsa_addr = 0xFFFFFFFFFFFFFFFF;
-	struct ve2_config_hwctx *hwctx_cfg = &nhwctx->hwctx_config[col];
+	u32 lead_col_addr;
+	u64 host_time_ns;
+
+	/* Store current host time */
+	host_time_ns = ktime_get_ns();
+	cert_hs->host_time_low  = (u32)(host_time_ns & 0xFFFFFFFF);
+	cert_hs->host_time_high = (u32)(host_time_ns >> 32);
 
 	if (col == 0)
 		hsa_addr = nhwctx->hwctx_hsa_queue.hsa_queue_mem.dma_addr;
 
-	u32 lead_col_addr = VE2_ADDR(start_col, 0, 0);
+	lead_col_addr = VE2_ADDR(start_col, 0, 0);
 
 	cert_hs->partition_base_address = lead_col_addr;
 	cert_hs->aie_info.partition_size = num_col;
@@ -347,14 +354,14 @@ void ve2_mgmt_handshake_init(struct amdxdna_dev *xdna,
 	nhwctx->args->init_opts = (AIE_PART_INIT_OPT_DEFAULT | AIE_PART_INIT_OPT_HANDSHAKE |
 		AIE_PART_INIT_OPT_DIS_TLAST_ERROR) & ~AIE_PART_INIT_OPT_UC_ENB_MEM_PRIV;
 	XDNA_DBG(xdna, "Handshake init hwctx : %p\n", hwctx);
-	XDNA_INFO(xdna,
+	XDNA_DBG(xdna,
 		  "partition init: start_col=%u num_col=%u hwctx=%p pid=%d",
 		  start_col, num_col, hwctx, hwctx->client->pid);
 	XDNA_DBG(xdna,
 		 "handshake: ve2_partition_initialize enter start_col=%u num_col=%u hwctx=%p",
 		 start_col, num_col, hwctx);
 	ret = ve2_partition_initialize(nhwctx->aie_dev, nhwctx->args);
-	XDNA_INFO(xdna,
+	XDNA_DBG(xdna,
 		  "partition init: aie_partition_initialize returned %d (start_col=%u num_col=%u hwctx=%p)",
 		  ret, start_col, num_col, hwctx);
 	if (ret < 0) {
@@ -438,7 +445,7 @@ int ve2_mgmt_schedule_cmd(struct amdxdna_dev *xdna, struct amdxdna_ctx *hwctx,
 		&xdna->dev_handle->ve2_mgmtctx[hwctx->start_col];
 	int ret;
 
-	XDNA_INFO(xdna,
+	XDNA_DBG(xdna,
 		  "schedule_cmd: enter command_index=%llu start_col=%u hwctx=%p pid=%d",
 		  (unsigned long long)command_index, mgmtctx->start_col, hwctx,
 		  hwctx->client->pid);
@@ -481,7 +488,7 @@ int ve2_mgmt_schedule_cmd(struct amdxdna_dev *xdna, struct amdxdna_ctx *hwctx,
 	mutex_unlock(&mgmtctx->ctx_lock);
 	notify_fw_cmd_ready(mgmtctx->active_ctx);
 
-	XDNA_INFO(xdna,
+	XDNA_DBG(xdna,
 		  "schedule_cmd: exit command_index=%llu start_col=%u hwctx=%p pid=%d",
 		  (unsigned long long)command_index, mgmtctx->start_col, hwctx,
 		  hwctx->client->pid);
@@ -607,7 +614,7 @@ static void ve2_scheduler_work(struct work_struct *work)
 		return;
 	}
 
-	XDNA_INFO(mgmtctx->xdna,
+	XDNA_DBG(mgmtctx->xdna,
 		  "scheduler: enter start_col=%u hwctx=%p pid=%d",
 		  mgmtctx->start_col, mgmtctx->active_ctx,
 		  mgmtctx->active_ctx->client->pid);
@@ -654,7 +661,7 @@ static void ve2_scheduler_work(struct work_struct *work)
 		XDNA_DBG(mgmtctx->xdna, "Scheduler: no action needed, active_ctx=%p",
 			 mgmtctx->active_ctx);
 	}
-	XDNA_INFO(mgmtctx->xdna,
+	XDNA_DBG(mgmtctx->xdna,
 		  "scheduler: exit start_col=%u hwctx=%p pid=%d",
 		  mgmtctx->start_col, mgmtctx->active_ctx,
 		  mgmtctx->active_ctx->client->pid);
@@ -730,7 +737,7 @@ static void ve2_irq_handler(u32 partition_id, void *cb_arg)
 		return;
 	}
 
-	XDNA_INFO(xdna,
+	XDNA_DBG(xdna,
 		  "completion IRQ: enter start_col=%u hwctx=%p pid=%d",
 		  mgmtctx->start_col, hwctx, hwctx->client->pid);
 
@@ -771,7 +778,7 @@ static void ve2_irq_handler(u32 partition_id, void *cb_arg)
 			 mgmtctx->start_col, mgmtctx->mgmtctx_workq);
 	}
 
-	XDNA_INFO(xdna,
+	XDNA_DBG(xdna,
 		  "completion IRQ: exit read_index=%llu write_index=%llu hwctx=%p pid=%d",
 		  (unsigned long long)read_index, (unsigned long long)write_index,
 		  hwctx, hwctx->client->pid);
@@ -1090,8 +1097,8 @@ static void ve2_aie_error_cb(void *arg)
 
 	/* Log error details after caching to ensure cache is available for queries */
 	for (i = 0; i < aie_errs->num_err; i++) {
-		XDNA_INFO(xdna, "Display AIE asynchronous Error data:\n");
-		XDNA_INFO(xdna, "error_id %d Mod %d, category %d, Col %d, Row %d\n",
+		XDNA_DBG(xdna, "Display AIE asynchronous Error data:\n");
+		XDNA_DBG(xdna, "error_id %d Mod %d, category %d, Col %d, Row %d\n",
 			  aie_errs->errors[i].error_id,
 			  aie_errs->errors[i].module,
 			  aie_errs->errors[i].category,

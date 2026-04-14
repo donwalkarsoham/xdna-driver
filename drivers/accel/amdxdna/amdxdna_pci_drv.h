@@ -67,6 +67,7 @@ struct amdxdna_dev_ops {
 	int (*set_aie_state)(struct amdxdna_client *client, struct amdxdna_drm_set_state *args);
 	int (*get_array)(struct amdxdna_client *client, struct amdxdna_drm_get_array *args);
 	int (*get_dev_revision)(struct amdxdna_dev *xdna, u32 *rev);
+	int (*hwctx_heap_expand)(struct amdxdna_hwctx *hwctx);
 };
 
 struct amdxdna_fw_feature_tbl {
@@ -93,6 +94,7 @@ struct amdxdna_dev_info {
 	size_t				dev_mem_size;
 	const char			*default_vbnv;
 	const struct amdxdna_rev_vbnv	*rev_vbnv_tbl;
+	size_t				dev_heap_max_size;
 	const struct amdxdna_dev_priv	*dev_priv;
 	const struct amdxdna_fw_feature_tbl *fw_feature_tbl;
 	const struct amdxdna_dev_ops	*ops;
@@ -148,6 +150,8 @@ struct amdxdna_client {
 
 	struct mutex			mm_lock; /* protect memory related */
 	struct amdxdna_gem_obj		*dev_heap;
+	struct list_head		dev_heap_chunks;
+	size_t				total_heap_size;
 
 	struct iommu_sva		*sva;
 	int				pasid;
@@ -176,11 +180,11 @@ void amdxdna_sysfs_fini(struct amdxdna_dev *xdna);
 
 int amdxdna_iommu_init(struct amdxdna_dev *xdna);
 void amdxdna_iommu_fini(struct amdxdna_dev *xdna);
-int amdxdna_iommu_map_bo(struct amdxdna_dev *xdna, struct amdxdna_gem_obj *abo);
-void amdxdna_iommu_unmap_bo(struct amdxdna_dev *xdna, struct amdxdna_gem_obj *abo);
 void *amdxdna_iommu_alloc(struct amdxdna_dev *xdna, size_t size, dma_addr_t *dma_addr);
 void amdxdna_iommu_free(struct amdxdna_dev *xdna, size_t size,
 			void *cpu_addr, dma_addr_t dma_addr);
+int amdxdna_dma_map_bo(struct amdxdna_dev *xdna, struct amdxdna_gem_obj *abo);
+void amdxdna_dma_unmap_bo(struct amdxdna_dev *xdna, struct amdxdna_gem_obj *abo);
 
 static inline bool amdxdna_iova_on(struct amdxdna_dev *xdna)
 {
