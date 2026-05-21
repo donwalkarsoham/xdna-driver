@@ -61,10 +61,15 @@ amdxdna_init_dev_bo(struct amdxdna_gem_obj *dev_bo)
 
 	heap_id--;
 	heap = xa_load(&client->dev_heap_xa, heap_id);
-	exp_heap_uva = amdxdna_gem_uva(heap);
 	heap_addr = amdxdna_gem_dev_addr(heap);
 	dev_bo->heap_start_id = heap_id;
-	dev_bo->mem.uva = dev_bo->mm_node.start - heap_addr + exp_heap_uva;
+
+	if (amdxdna_pasid_on(client)) {
+		exp_heap_uva = amdxdna_gem_uva(heap);
+		dev_bo->mem.uva = dev_bo->mm_node.start - heap_addr + exp_heap_uva;
+	} else {
+		dev_bo->mem.uva = AMDXDNA_INVALID_ADDR;
+	}
 
 	for (; heap_id < client->dev_heap_nid; heap_id++) {
 		heap = xa_load(&client->dev_heap_xa, heap_id);
@@ -72,22 +77,29 @@ amdxdna_init_dev_bo(struct amdxdna_gem_obj *dev_bo)
 			XDNA_ERR(xdna, "Failed to load heap %d", heap_id);
 			return -EINVAL;
 		}
-		heap_addr = amdxdna_gem_uva(heap);
-		if (heap_addr == AMDXDNA_INVALID_ADDR) {
-			XDNA_ERR(xdna, "Heap %d is not mapped", heap_id);
-			return -EAGAIN;
-		}
 
-		if (heap_addr != exp_heap_uva) {
-			XDNA_ERR(xdna, "Heap %d uva is not contiguous", heap_id);
-			return -EINVAL;
+		if (amdxdna_pasid_on(client)) {
+			heap_addr = amdxdna_gem_uva(heap);
+			if (heap_addr == AMDXDNA_INVALID_ADDR) {
+				XDNA_ERR(xdna, "Heap %d is not mapped", heap_id);
+				return -EAGAIN;
+			}
+			if (heap_addr != exp_heap_uva) {
+				XDNA_ERR(xdna, "Heap %d uva is not contiguous", heap_id);
+				return -EINVAL;
+			}
+		} else if (amdxdna_iova_on(xdna) &&
+			   heap->mem.dma_addr == AMDXDNA_INVALID_ADDR) {
+			XDNA_ERR(xdna, "Heap %d is not dma mapped", heap_id);
+			return -EAGAIN;
 		}
 
 		if (heap->dev_addr + heap->mem.size >=
 		    dev_bo->mm_node.start + dev_bo->mem.size)
 			break;
 
-		exp_heap_uva += heap->mem.size;
+		if (amdxdna_pasid_on(client))
+			exp_heap_uva += heap->mem.size;
 	}
 
 	if (heap_id == client->dev_heap_nid) {
@@ -825,6 +837,20 @@ amdxdna_gem_create_ubuf_object(struct drm_device *dev, struct amdxdna_drm_create
 
 	abo = to_xdna_obj(gobj);
 	abo->pri = true;
+
+	/*
+	 * Userptr imports do not use drm_gem_mmap(); record the first va_tbl
+	 * entry so GET_BO_INFO and PASID dev-heap checks see the CPU UVA
+	 * (e.g. vxdna guest coalesce path).
+	 */
+	if (va_tbl.num_entries) {
+		struct amdxdna_drm_va_entry ent;
+
+		if (!copy_from_user(&ent,
+				    u64_to_user_ptr(args->vaddr + sizeof(va_tbl)),
+				    sizeof(ent)) && ent.vaddr)
+			abo->mem.uva = ent.vaddr;
+	}
 
 	return abo;
 }
